@@ -1,0 +1,552 @@
+// Prisma schema for Industrial Automation Learning Management System
+// Features: Dual-Language (AR/EN), Virtual PLC Simulation Engine,
+// Industrial Component Library, OWASP Top 10 Cybersecurity, & Future-Proof E-Commerce (Zain Cash, FIB, Stripe)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+  SUPPORT
+}
+
+enum Language {
+  AR
+  EN
+}
+
+enum LevelTier {
+  LEVEL_0 // Electrical & Electronic Basics
+  LEVEL_1 // Intro to Industrial Automation
+  LEVEL_2 // PLC from Scratch
+  LEVEL_3 // Industrial Programming
+  LEVEL_4 // Factory Components
+  LEVEL_5 // How Factories Work
+  LEVEL_6 // Advanced Control & Industry 4.0
+  LEVEL_7 // Engineering Projects & Virtual Plant Simulation
+}
+
+enum WiringType {
+  SINKING
+  SOURCING
+  NPN
+  PNP
+  DRY_CONTACT
+  ANALOG_4_20MA
+  ANALOG_0_10V
+  PUSH_PULL
+  SOLID_STATE
+}
+
+enum PaymentProvider {
+  ZAIN_CASH
+  FIB         // First Iraqi Bank
+  STRIPE
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum AuditSeverity {
+  INFO
+  WARNING
+  SECURITY_ALERT
+  CRITICAL
+}
+
+// ==========================================
+// 1. AUTHENTICATION & USER MANAGEMENT
+// ==========================================
+
+model User {
+  id                    String            @id @default(cuid())
+  name                  String?
+  email                 String            @unique
+  emailVerified         DateTime?
+  passwordHash          String?
+  image                 String?
+  role                  Role              @default(STUDENT)
+  preferredLanguage     Language          @default(AR)
+  phone                 String?
+  mfaEnabled            Boolean           @default(false)
+  mfaSecret             String?           // Encrypted TOTP secret
+  isBanned              Boolean           @default(false)
+  failedLoginAttempts   Int               @default(0)
+  lockedUntil           DateTime?
+
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  accounts              Account[]
+  sessions              Session[]
+  progress              UserProgress[]
+  quizAttempts          QuizAttempt[]
+  subscriptions         UserSubscription[]
+  payments              Payment[]
+  simulationSaves       UserSimulationSave[]
+  auditLogs             AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ==========================================
+// 2. CURRICULUM, LESSONS & QUIZZES (LEVELS 0-7)
+// ==========================================
+
+model CurriculumLevel {
+  id            String      @id @default(cuid())
+  tier          LevelTier   @unique
+  titleAr       String
+  titleEn       String
+  descriptionAr String      @db.Text
+  descriptionEn String      @db.Text
+  orderIndex    Int         @default(0)
+  iconName      String?     @default("Cpu")
+  isPublished   Boolean     @default(true)
+
+  modules       CourseModule[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model CourseModule {
+  id            String          @id @default(cuid())
+  levelId       String
+  titleAr       String
+  titleEn       String
+  descriptionAr String?         @db.Text
+  descriptionEn String?         @db.Text
+  orderIndex    Int             @default(0)
+  isPublished   Boolean         @default(true)
+
+  level         CurriculumLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  lessons       Lesson[]
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([levelId])
+}
+
+model Lesson {
+  id                 String          @id @default(cuid())
+  moduleId           String
+  slug               String          @unique
+  titleAr            String
+  titleEn            String
+  summaryAr          String?         @db.Text
+  summaryEn          String?         @db.Text
+  contentAr          String          @db.Text // Rich Markdown / MDX
+  contentEn          String          @db.Text // Rich Markdown / MDX
+  orderIndex         Int             @default(0)
+  durationMinutes    Int             @default(15)
+  isPremium          Boolean         @default(false)
+  isPublished        Boolean         @default(true)
+
+  // Verified Industrial & Academic References
+  references         Json?           // Array of { source: "Siemens"|"Rockwell"|"Schneider", manualTitle: string, docId: string, url: string }
+
+  // Virtual Lab Simulation Attachment
+  hasVirtualLab      Boolean         @default(false)
+  simulationScenarioId String?
+
+  module             CourseModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  quiz               Quiz?
+  progressRecords    UserProgress[]
+  simulationScenario SimulationScenario? @relation(fields: [simulationScenarioId], references: [id])
+
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([moduleId])
+  @@index([slug])
+}
+
+model Quiz {
+  id                 String          @id @default(cuid())
+  lessonId           String          @unique
+  titleAr            String
+  titleEn            String
+  passingScore       Int             @default(80) // In percentage
+  maxAttempts        Int             @default(5)
+
+  lesson             Lesson          @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions          QuizQuestion[]
+  attempts           QuizAttempt[]
+
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+}
+
+model QuizQuestion {
+  id                   String          @id @default(cuid())
+  quizId               String
+  questionAr           String          @db.Text
+  questionEn           String          @db.Text
+  orderIndex           Int             @default(0)
+  scientificRationaleAr String         @db.Text // Detailed scientific explanation
+  scientificRationaleEn String         @db.Text // Detailed scientific explanation
+  citationSource       String?         // Reference e.g. "Siemens S7-1200 System Manual, Section 4.2"
+
+  quiz                 Quiz            @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options              QuizOption[]
+
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@index([quizId])
+}
+
+model QuizOption {
+  id            String       @id @default(cuid())
+  questionId    String
+  optionTextAr  String
+  optionTextEn  String
+  isCorrect     Boolean      @default(false)
+  explanationAr String?      @db.Text // Immediate feedback if chosen
+  explanationEn String?      @db.Text
+
+  question      QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model QuizAttempt {
+  id            String       @id @default(cuid())
+  quizId        String
+  userId        String
+  score         Int          // percentage 0 - 100
+  passed        Boolean      @default(false)
+  answersJson   Json         // User chosen options mapped to questionIds
+  timeSpentSec  Int          @default(0)
+
+  quiz          Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime     @default(now())
+
+  @@index([quizId])
+  @@index([userId])
+}
+
+model UserProgress {
+  id              String       @id @default(cuid())
+  userId          String
+  lessonId        String
+  completed       Boolean      @default(false)
+  completedAt     DateTime?
+  lastAccessedAt  DateTime     @default(now())
+  timeSpentSec    Int          @default(0)
+
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson          Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+}
+
+// ==========================================
+// 3. VIRTUAL PLC LAB & SIMULATION SCENARIOS
+// ==========================================
+
+model SimulationScenario {
+  id                 String       @id @default(cuid())
+  titleAr            String
+  titleEn            String
+  slug               String       @unique
+  descriptionAr      String       @db.Text
+  descriptionEn      String       @db.Text
+  targetLevel        LevelTier    @default(LEVEL_3)
+  
+  // Simulation Hardware Rack Configuration
+  defaultInputs      Json         // e.g. [{ address: "I0.0", name: "Start_PB", type: "NO_MOMENTARY" }]
+  defaultOutputs     Json         // e.g. [{ address: "Q0.0", name: "Conveyor_Motor", type: "ACTUATOR_VFD" }]
+  environmentType    String       @default("CONVEYOR_SORTING") // WATER_BOTTLING, CEMENT, STAR_DELTA, SORTING
+  interactiveAssets  Json         // SVG/Canvas layer configuration, sensors, conveyors, diverters
+  initialLadderLogic Json         // Default rungs or template starter
+
+  lessons            Lesson[]
+  userSaves          UserSimulationSave[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model UserSimulationSave {
+  id                 String             @id @default(cuid())
+  scenarioId         String
+  userId             String
+  saveName           String             @default("My Ladder Program")
+  ladderLogic        Json               // Array of rungs, contacts, coils, timers, counters
+  simulationVariables Json?             // State memory bits M0.0, DB words, VFD frequencies
+  isSolved           Boolean            @default(false)
+
+  scenario           SimulationScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([scenarioId])
+  @@index([userId])
+}
+
+// ==========================================
+// 4. ENGINEERING COMPONENTS LIBRARY
+// ==========================================
+
+model ComponentCategory {
+  id            String              @id @default(cuid())
+  slug          String              @unique
+  nameAr        String
+  nameEn        String
+  descriptionAr String?             @db.Text
+  descriptionEn String?             @db.Text
+  iconName      String?             @default("Cpu")
+
+  components    IndustrialComponent[]
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+model IndustrialComponent {
+  id                     String            @id @default(cuid())
+  categoryId             String
+  slug                   String            @unique
+  nameAr                 String
+  nameEn                 String
+  partNumber             String?           // e.g. 6ES7 214-1AG40-0XB0 or Generic Inductive M18
+  manufacturer           String?           // Siemens, Schneider, Rockwell, Omron, SMC, FESTO, Generic
+  
+  imageUrl               String?
+  electricalSymbolIecSvg String?           @db.Text // IEC 60617 standard symbol
+  electricalSymbolNemaSvg String?          @db.Text // NEMA / NFPA 79 standard symbol
+
+  workingPrincipleAr     String            @db.Text
+  workingPrincipleEn     String            @db.Text
+
+  // Technical Specifications (Voltages, Current ratings, IP Rating, Temps)
+  voltageRating          String            // e.g. "24V DC (10-30V DC)" or "230V / 400V AC"
+  currentRating          String            // e.g. "200 mA output" or "16A inductive load"
+  powerRating            String?           // e.g. "4 kW (5.5 HP)"
+  protectionClass        String            @default("IP67")
+  operatingTemperature   String            @default("-25°C to +70°C")
+  frequencyResponse      String?           // e.g. "1 kHz switching frequency"
+  
+  // Electrical Wiring Architecture
+  wiringType             WiringType        @default(PNP)
+  wiringDiagramUrl       String?
+  wiringInstructionsAr   String            @db.Text // How to wire into Sinking/Sourcing PLC card
+  wiringInstructionsEn   String            @db.Text
+
+  // Industrial Applications & OEM References
+  applicationsAr         String            @db.Text
+  applicationsEn         String            @db.Text
+  oemEquivalents         Json?             // Array of equivalent part numbers from Siemens, Schneider, Allen Bradley
+  safetyPrecautionsAr    String            @db.Text
+  safetyPrecautionsEn    String            @db.Text
+
+  isVerified             Boolean           @default(true) // Verified against OEM documentation
+
+  category               ComponentCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  @@index([categoryId])
+  @@index([slug])
+}
+
+// ==========================================
+// 5. E-COMMERCE & MIDDLE EAST BILLING (STUBS)
+// ==========================================
+
+model SubscriptionPlan {
+  id            String             @id @default(cuid())
+  slug          String             @unique
+  nameAr        String
+  nameEn        String
+  descriptionAr String             @db.Text
+  descriptionEn String             @db.Text
+  priceIQD      Int                // In Iraqi Dinars (e.g. 35000 IQD)
+  priceUSD      Decimal            @db.Decimal(10, 2) // In USD (e.g. 25.00)
+  billingCycle  String             @default("MONTHLY") // MONTHLY, QUARTERLY, ANNUAL, LIFETIME
+  featuresAr    Json               // Array of feature bullet points
+  featuresEn    Json
+  isActive      Boolean            @default(true)
+
+  subscriptions UserSubscription[]
+
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model UserSubscription {
+  id             String             @id @default(cuid())
+  userId         String
+  planId         String
+  status         SubscriptionStatus @default(INACTIVE)
+  startDate      DateTime           @default(now())
+  endDate        DateTime?
+  cancelAtPeriodEnd Boolean         @default(false)
+
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan           SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  payments       Payment[]
+
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([planId])
+}
+
+model Payment {
+  id                 String          @id @default(cuid())
+  userId             String
+  subscriptionId     String?
+  provider           PaymentProvider
+  status             PaymentStatus   @default(PENDING)
+  amount             Decimal         @db.Decimal(10, 2)
+  currency           String          @default("IQD") // IQD or USD
+  
+  // Gateway transaction tracking
+  transactionRef     String          @unique // External ID from Zain Cash, FIB, or Stripe
+  gatewayOrderId     String?
+  gatewayPayload     Json?
+  
+  invoice            Invoice?
+
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription       UserSubscription? @relation(fields: [subscriptionId], references: [id])
+
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([transactionRef])
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  paymentId     String        @unique
+  invoiceNumber String        @unique
+  subtotal      Decimal       @db.Decimal(10, 2)
+  tax           Decimal       @default(0.00) @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  currency      String        @default("IQD")
+  customerName  String
+  customerEmail String
+  pdfUrl        String?
+  paidAt        DateTime?
+
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime      @default(now())
+}
+
+// ==========================================
+// 6. CYBERSECURITY AUDIT & IIOT HARDWARE BRIDGE
+// ==========================================
+
+model AuditLog {
+  id         String        @id @default(cuid())
+  userId     String?
+  action     String        // e.g. "AUTH_LOGIN_SUCCESS", "RATE_LIMIT_EXCEEDED", "ADMIN_LESSON_EDIT"
+  severity   AuditSeverity @default(INFO)
+  ipAddress  String?
+  userAgent  String?
+  details    Json?
+
+  user       User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime      @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Hardcoded Safety Decoupling Architecture
+model IIoTBridgeConfig {
+  id                    String   @id @default(cuid())
+  gatewayName           String   @default("Local-PLC-Sandbox-Bridge")
+  endpointUrl           String   // Local network only (e.g. ws://192.168.1.50:1880/ws/plc)
+  protocol              String   @default("NODE_RED_WEBSOCKET") // OPC_UA, MQTT, NODE_RED_WEBSOCKET
+  
+  // CRITICAL SAFETY CONSTRAINTS:
+  // Public internet cannot write to physical actuators.
+  // Physical E-Stop must be verified electrically.
+  isReadOnlyMode        Boolean  @default(true) // Enforced default
+  isLocalVpnEnforced    Boolean  @default(true)
+  hardwareEStopArmed    Boolean  @default(true)
+  allowedSubnetMask     String   @default("192.168.1.0/24")
+  sharedSecretHash      String   // Argon2/Bcrypt hashed local mutual handshake
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
