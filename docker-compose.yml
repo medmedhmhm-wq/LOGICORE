@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  # 1. LOGICORE by HAMEED Web Application & Simulation Engine
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logicore_web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-industrial_secure_pass_2026}@db:5432/industrial_automation_db?schema=public
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-https://academy.industrial.iq}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-insecure_local_dev_secret_change_in_production_min_64_chars_hex_industrial_lms_2026}
+      - JWT_SECRET=${JWT_SECRET:-industrial_jwt_rotation_key_sha256_super_secure_protection}
+      - IIOT_HARDWARE_WRITE_ENABLED=false
+      - IIOT_READ_ONLY_MODE=true
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - industrial_internal_net
+      - industrial_public_net
+
+  # 2. LMS Isolated PostgreSQL Database
+  # (Strictly separate from any real plant PLC control infrastructure)
+  db:
+    image: postgres:16-alpine
+    container_name: logicore_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-industrial_secure_pass_2026}
+      POSTGRES_DB: industrial_automation_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - industrial_internal_net
+
+  # 3. Automated Daily Database Backups (pg_dump with retention pruning)
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:16-alpine
+    container_name: logicore_backup
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=industrial_automation_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-industrial_secure_pass_2026}
+      - SCHEDULE=@daily
+      - BACKUP_KEEP_DAYS=14
+      - BACKUP_KEEP_WEEKS=4
+      - BACKUP_KEEP_MONTHS=6
+      - HEALTHCHECK_PORT=80
+    volumes:
+      - db_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - industrial_internal_net
+
+volumes:
+  postgres_data:
+    driver: local
+  db_backups:
+    driver: local
+
+networks:
+  industrial_internal_net:
+    internal: true
+  industrial_public_net:
+    driver: bridge
